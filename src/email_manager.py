@@ -88,6 +88,8 @@ class EmailManagerApp(tk.Tk):
         ttk.Label(control_frame, text="当前账号：").grid(row=1, column=0, sticky="e", padx=4, pady=(4, 0))
         self.current_account_var = tk.StringVar()
         ttk.Label(control_frame, textvariable=self.current_account_var).grid(row=1, column=1, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Button(control_frame, text="切换账号", command=self.switch_account).grid(row=1, column=3, padx=4, pady=(4, 0))
+        ttk.Button(control_frame, text="退出登录", command=self.logout_app).grid(row=1, column=4, padx=4, pady=(4, 0))
 
         # Folder filter
         folder_frame = ttk.Frame(self.main_frame)
@@ -322,6 +324,24 @@ class EmailManagerApp(tk.Tk):
             current = self.attach_var.get().split(",") if self.attach_var.get() else []
             all_paths = [*current, *file_paths]
             self.attach_var.set(", ".join([p for p in all_paths if p]))
+
+    def switch_account(self) -> None:
+        if self.main_frame:
+            self.main_frame.destroy()
+            self.main_frame = None
+        self.main_built = False
+        self.active_account = None
+        self.selected_message_id = None
+        self.current_account_var.set("")
+        self.login_email_var.set("")
+        self.login_pass_var.set("")
+        if self.provider_mapping:
+            first_provider = next(iter(self.provider_mapping.keys()))
+            self.provider_var.set(first_provider)
+        self._build_login_screen()
+
+    def logout_app(self) -> None:
+        self.destroy()
 
     # Contacts window
     def open_contacts_window(self) -> None:
