@@ -11,6 +11,7 @@ class EmailManagerApp(tk.Tk):
         super().__init__()
         self.title("邮箱管理系统")
         self.geometry("1000x650")
+        self.state("zoomed")
         self.store = MailStore()
         self.selected_message_id: Optional[str] = None
         self.active_account: Optional[Tuple[str, str]] = None  # (email, provider_key)
@@ -68,9 +69,11 @@ class EmailManagerApp(tk.Tk):
         self.main_frame = ttk.Frame(self)
         self.main_frame.grid(sticky="nsew")
 
-        self.columnconfigure(0, weight=3)
-        self.columnconfigure(1, weight=2)
-        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.main_frame.columnconfigure(0, weight=3)
+        self.main_frame.columnconfigure(1, weight=2)
+        self.main_frame.rowconfigure(1, weight=1)
 
         # Search bar and controls
         control_frame = ttk.Frame(self.main_frame)
@@ -88,6 +91,8 @@ class EmailManagerApp(tk.Tk):
         ttk.Label(control_frame, text="当前账号：").grid(row=1, column=0, sticky="e", padx=4, pady=(4, 0))
         self.current_account_var = tk.StringVar()
         ttk.Label(control_frame, textvariable=self.current_account_var).grid(row=1, column=1, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Button(control_frame, text="切换账号", command=self.switch_account).grid(row=1, column=3, padx=4, pady=(4, 0))
+        ttk.Button(control_frame, text="退出登录", command=self.logout_app).grid(row=1, column=4, padx=4, pady=(4, 0))
 
         # Folder filter
         folder_frame = ttk.Frame(self.main_frame)
@@ -114,7 +119,7 @@ class EmailManagerApp(tk.Tk):
         scrollbar.grid(row=1, column=3, sticky="ns")
 
         # Compose frame
-        compose = ttk.LabelFrame(self, text="写邮件")
+        compose = ttk.LabelFrame(self.main_frame, text="写邮件")
         compose.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=8, pady=4)
         compose.columnconfigure(1, weight=1)
         compose.rowconfigure(6, weight=1)
@@ -314,7 +319,8 @@ class EmailManagerApp(tk.Tk):
     def clear_compose(self) -> None:
         for var in [self.to_var, self.subject_var, self.attach_var]:
             var.set("")
-        self.body_text.delete("1.0", tk.END)
+        if getattr(self, "body_text", None) and self.body_text.winfo_exists():
+            self.body_text.delete("1.0", tk.END)
 
     def choose_attachment(self) -> None:
         file_paths = filedialog.askopenfilenames(title="选择附件")
@@ -322,6 +328,26 @@ class EmailManagerApp(tk.Tk):
             current = self.attach_var.get().split(",") if self.attach_var.get() else []
             all_paths = [*current, *file_paths]
             self.attach_var.set(", ".join([p for p in all_paths if p]))
+
+    def switch_account(self) -> None:
+        self.clear_compose()
+        if self.main_frame:
+            self.main_frame.destroy()
+            self.main_frame = None
+        self.main_built = False
+        self.active_account = None
+        self.selected_message_id = None
+        self.current_account_var.set("")
+        self.from_var.set("")
+        self.login_email_var.set("")
+        self.login_pass_var.set("")
+        if self.provider_mapping:
+            first_provider = next(iter(self.provider_mapping.keys()))
+            self.provider_var.set(first_provider)
+        self._build_login_screen()
+
+    def logout_app(self) -> None:
+        self.destroy()
 
     # Contacts window
     def open_contacts_window(self) -> None:
