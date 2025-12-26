@@ -1,7 +1,7 @@
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from typing import Optional
+from typing import Optional, Tuple
 
 from mail_store import MailStore
 
@@ -13,6 +13,7 @@ class EmailManagerApp(tk.Tk):
         self.geometry("1000x650")
         self.store = MailStore()
         self.selected_message_id: Optional[str] = None
+        self.active_account: Optional[Tuple[str, str]] = None  # (email, provider_key)
 
         self._build_layout()
         self.refresh_messages()
@@ -59,6 +60,26 @@ class EmailManagerApp(tk.Tk):
         scrollbar = ttk.Scrollbar(folder_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.grid(row=1, column=3, sticky="ns")
+
+        # Account login
+        login_frame = ttk.LabelFrame(folder_frame, text="IMAP/SMTP 登录")
+        login_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=6)
+        login_frame.columnconfigure(1, weight=1)
+        ttk.Label(login_frame, text="邮箱账号").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        self.login_email_var = tk.StringVar()
+        ttk.Entry(login_frame, textvariable=self.login_email_var).grid(row=0, column=1, sticky="ew", padx=4, pady=2)
+        ttk.Label(login_frame, text="密码/授权码").grid(row=1, column=0, padx=4, pady=2, sticky="w")
+        self.login_pass_var = tk.StringVar()
+        ttk.Entry(login_frame, textvariable=self.login_pass_var, show="*").grid(row=1, column=1, sticky="ew", padx=4, pady=2)
+        ttk.Label(login_frame, text="服务商").grid(row=0, column=2, padx=4, pady=2)
+        provider_items = [name for _, name in self.store.list_providers()]
+        provider_keys = [key for key, _ in self.store.list_providers()]
+        self.provider_mapping = dict(zip(provider_items, provider_keys))
+        self.provider_var = tk.StringVar(value=provider_items[0] if provider_items else "")
+        ttk.Combobox(login_frame, textvariable=self.provider_var, values=provider_items, state="readonly").grid(
+            row=0, column=3, padx=4
+        )
+        ttk.Button(login_frame, text="登录并同步", command=self.login_and_sync).grid(row=1, column=3, padx=4, pady=2)
 
         # Compose frame
         compose = ttk.LabelFrame(self, text="写邮件")
@@ -143,6 +164,23 @@ class EmailManagerApp(tk.Tk):
         self.body_view.delete("1.0", tk.END)
         self.body_view.configure(state="disabled")
 
+    def login_and_sync(self) -> None:
+        email_addr = self.login_email_var.get().strip()
+        password = self.login_pass_var.get().strip()
+        provider_name = self.provider_var.get()
+        provider_key = self.provider_mapping.get(provider_name, "")
+        if not email_addr or not password or not provider_key:
+            messagebox.showwarning("提示", "请填写邮箱、授权码并选择服务商")
+            return
+        try:
+            added = self.store.sync_imap(email_addr, password, provider_key)
+            self.active_account = (email_addr, provider_key)
+            self.from_var.set(email_addr)
+            self.refresh_messages()
+            messagebox.showinfo("同步完成", f"成功同步 {added} 封邮件")
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("同步失败", f"无法同步邮件：{exc}")
+
     def show_selected_message(self) -> None:
         selection = self.tree.selection()
         if not selection:
@@ -177,11 +215,25 @@ class EmailManagerApp(tk.Tk):
         if not sender or not recipients:
             messagebox.showwarning("提示", "请填写发件人和至少一个收件人。")
             return
-
-        self.store.add_message(sender, recipients, subject, body, folder="Sent", attachments=attachments)
-        messagebox.showinfo("成功", "邮件已发送（本地保存）")
-        self.refresh_messages()
-        self.clear_compose()
+        try:
+            if self.active_account:
+                self.store.send_smtp(
+                    sender,
+                    self.login_pass_var.get().strip(),
+                    self.active_account[1],
+                    recipients,
+                    subject,
+                    body,
+                    attachments,
+                )
+                messagebox.showinfo("成功", "邮件已通过SMTP发送")
+            else:
+                messagebox.showinfo("成功", "未登录，已本地保存邮件")
+            self.store.add_message(sender, recipients, subject, body, folder="Sent", attachments=attachments)
+            self.refresh_messages()
+            self.clear_compose()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("发送失败", f"请检查账号或网络：{exc}")
 
     def forward_selected(self) -> None:
         if not self.selected_message_id:
