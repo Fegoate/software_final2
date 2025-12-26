@@ -15,17 +15,65 @@ class EmailManagerApp(tk.Tk):
         self.selected_message_id: Optional[str] = None
         self.active_account: Optional[Tuple[str, str]] = None  # (email, provider_key)
 
-        self._build_layout()
-        self.refresh_messages()
+        self.login_frame: Optional[ttk.Frame] = None
+        self.main_frame: Optional[ttk.Frame] = None
+        self.main_built = False
+
+        # Shared variables used across screens
+        provider_items = [name for _, name in self.store.list_providers()]
+        provider_keys = [key for key, _ in self.store.list_providers()]
+        self.provider_mapping = dict(zip(provider_items, provider_keys))
+        self.provider_var = tk.StringVar(value=provider_items[0] if provider_items else "")
+        self.login_email_var = tk.StringVar()
+        self.login_pass_var = tk.StringVar()
+
+        self._build_login_screen()
 
     # Layout
+    def _build_login_screen(self) -> None:
+        self.login_frame = ttk.Frame(self)
+        self.login_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        ttk.Label(self.login_frame, text="登录邮箱以同步真实内容", font=("Arial", 14, "bold")).grid(row=0, column=0, columnspan=3, pady=(0, 12))
+
+        ttk.Label(self.login_frame, text="邮箱账号").grid(row=1, column=0, sticky="e", padx=6, pady=4)
+        ttk.Entry(self.login_frame, textvariable=self.login_email_var, width=32).grid(row=1, column=1, columnspan=2, sticky="w", pady=4)
+
+        ttk.Label(self.login_frame, text="授权码/密码").grid(row=2, column=0, sticky="e", padx=6, pady=4)
+        ttk.Entry(self.login_frame, textvariable=self.login_pass_var, show="*", width=32).grid(row=2, column=1, columnspan=2, sticky="w", pady=4)
+
+        ttk.Label(self.login_frame, text="邮箱类型").grid(row=3, column=0, sticky="e", padx=6, pady=4)
+        provider_box = ttk.Combobox(
+            self.login_frame, textvariable=self.provider_var, values=list(self.provider_mapping.keys()), state="readonly", width=30
+        )
+        provider_box.grid(row=3, column=1, columnspan=2, sticky="w", pady=4)
+        provider_box.bind("<<ComboboxSelected>>", self._update_provider_info)
+
+        self.imap_info_var = tk.StringVar()
+        self.smtp_info_var = tk.StringVar()
+        ttk.Label(self.login_frame, text="IMAP 服务器").grid(row=4, column=0, sticky="e", padx=6, pady=2)
+        ttk.Label(self.login_frame, textvariable=self.imap_info_var).grid(row=4, column=1, columnspan=2, sticky="w")
+        ttk.Label(self.login_frame, text="SMTP 服务器").grid(row=5, column=0, sticky="e", padx=6, pady=2)
+        ttk.Label(self.login_frame, textvariable=self.smtp_info_var).grid(row=5, column=1, columnspan=2, sticky="w")
+
+        ttk.Button(self.login_frame, text="登录并进入主界面", command=self.login_and_sync).grid(row=6, column=0, columnspan=3, pady=10)
+
+        self._update_provider_info()
+
     def _build_layout(self) -> None:
+        if self.login_frame:
+            self.login_frame.destroy()
+            self.login_frame = None
+
+        self.main_frame = ttk.Frame(self)
+        self.main_frame.grid(sticky="nsew")
+
         self.columnconfigure(0, weight=3)
         self.columnconfigure(1, weight=2)
         self.rowconfigure(1, weight=1)
 
         # Search bar and controls
-        control_frame = ttk.Frame(self)
+        control_frame = ttk.Frame(self.main_frame)
         control_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=4)
         control_frame.columnconfigure(1, weight=1)
 
@@ -34,11 +82,15 @@ class EmailManagerApp(tk.Tk):
         search_entry = ttk.Entry(control_frame, textvariable=self.search_var)
         search_entry.grid(row=0, column=1, sticky="ew")
         ttk.Button(control_frame, text="查找", command=self.refresh_messages).grid(row=0, column=2, padx=4)
-        ttk.Button(control_frame, text="接收模拟邮件", command=self.receive_demo).grid(row=0, column=3, padx=4)
+        ttk.Button(control_frame, text="同步邮箱", command=self.login_and_sync).grid(row=0, column=3, padx=4)
         ttk.Button(control_frame, text="联系人管理", command=self.open_contacts_window).grid(row=0, column=4, padx=4)
 
+        ttk.Label(control_frame, text="当前账号：").grid(row=1, column=0, sticky="e", padx=4, pady=(4, 0))
+        self.current_account_var = tk.StringVar()
+        ttk.Label(control_frame, textvariable=self.current_account_var).grid(row=1, column=1, columnspan=2, sticky="w", pady=(4, 0))
+
         # Folder filter
-        folder_frame = ttk.Frame(self)
+        folder_frame = ttk.Frame(self.main_frame)
         folder_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         folder_frame.rowconfigure(1, weight=1)
         ttk.Label(folder_frame, text="文件夹：").grid(row=0, column=0, sticky="w")
@@ -60,26 +112,6 @@ class EmailManagerApp(tk.Tk):
         scrollbar = ttk.Scrollbar(folder_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.grid(row=1, column=3, sticky="ns")
-
-        # Account login
-        login_frame = ttk.LabelFrame(folder_frame, text="IMAP/SMTP 登录")
-        login_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=6)
-        login_frame.columnconfigure(1, weight=1)
-        ttk.Label(login_frame, text="邮箱账号").grid(row=0, column=0, padx=4, pady=2, sticky="w")
-        self.login_email_var = tk.StringVar()
-        ttk.Entry(login_frame, textvariable=self.login_email_var).grid(row=0, column=1, sticky="ew", padx=4, pady=2)
-        ttk.Label(login_frame, text="密码/授权码").grid(row=1, column=0, padx=4, pady=2, sticky="w")
-        self.login_pass_var = tk.StringVar()
-        ttk.Entry(login_frame, textvariable=self.login_pass_var, show="*").grid(row=1, column=1, sticky="ew", padx=4, pady=2)
-        ttk.Label(login_frame, text="服务商").grid(row=0, column=2, padx=4, pady=2)
-        provider_items = [name for _, name in self.store.list_providers()]
-        provider_keys = [key for key, _ in self.store.list_providers()]
-        self.provider_mapping = dict(zip(provider_items, provider_keys))
-        self.provider_var = tk.StringVar(value=provider_items[0] if provider_items else "")
-        ttk.Combobox(login_frame, textvariable=self.provider_var, values=provider_items, state="readonly").grid(
-            row=0, column=3, padx=4
-        )
-        ttk.Button(login_frame, text="登录并同步", command=self.login_and_sync).grid(row=1, column=3, padx=4, pady=2)
 
         # Compose frame
         compose = ttk.LabelFrame(self, text="写邮件")
@@ -145,6 +177,8 @@ class EmailManagerApp(tk.Tk):
 
     # Data helpers
     def refresh_messages(self) -> None:
+        if not self.main_built:
+            return
         query = self.search_var.get()
         folder = self.folder_var.get()
         messages = self.store.search_messages(query, folder if folder != "All" else None)
@@ -164,6 +198,12 @@ class EmailManagerApp(tk.Tk):
         self.body_view.delete("1.0", tk.END)
         self.body_view.configure(state="disabled")
 
+    def _update_provider_info(self, *_: object) -> None:
+        provider_key = self.provider_mapping.get(self.provider_var.get(), "")
+        settings = self.store.provider_settings(provider_key) or {}
+        self.imap_info_var.set(f"{settings.get('imap', '--')}:{settings.get('imap_port', '')}")
+        self.smtp_info_var.set(f"{settings.get('smtp', '--')}:{settings.get('smtp_port', '')}")
+
     def login_and_sync(self) -> None:
         email_addr = self.login_email_var.get().strip()
         password = self.login_pass_var.get().strip()
@@ -175,7 +215,11 @@ class EmailManagerApp(tk.Tk):
         try:
             added = self.store.sync_imap(email_addr, password, provider_key)
             self.active_account = (email_addr, provider_key)
+            if not self.main_built:
+                self._build_layout()
+                self.main_built = True
             self.from_var.set(email_addr)
+            self.current_account_var.set(f"{email_addr}（{provider_name}）")
             self.refresh_messages()
             messagebox.showinfo("同步完成", f"成功同步 {added} 封邮件")
         except Exception as exc:  # noqa: BLE001
