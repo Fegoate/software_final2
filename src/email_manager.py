@@ -330,7 +330,6 @@ class EmailManagerApp(tk.Tk):
             self.attach_var.set(", ".join([p for p in all_paths if p]))
 
     def switch_account(self) -> None:
-        self.clear_compose()
         if self.main_frame:
             self.main_frame.destroy()
             self.main_frame = None
@@ -338,7 +337,6 @@ class EmailManagerApp(tk.Tk):
         self.active_account = None
         self.selected_message_id = None
         self.current_account_var.set("")
-        self.from_var.set("")
         self.login_email_var.set("")
         self.login_pass_var.set("")
         if self.provider_mapping:
