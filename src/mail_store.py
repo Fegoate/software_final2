@@ -200,7 +200,10 @@ class MailStore:
             return 0
         server = imaplib.IMAP4_SSL(settings["imap"], settings.get("imap_port", 993))
         server.login(email_address, password)
-        server.select("INBOX")
+        status, _ = server.select("INBOX")
+        if status != "OK":
+            server.logout()
+            raise RuntimeError("无法进入收件箱，请检查邮箱设置或授权码")
         typ, data = server.search(None, "ALL")
         if typ != "OK":
             server.logout()
